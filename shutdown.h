@@ -15,15 +15,7 @@ void shutdown_fallback();
 
 #ifdef NQ_SHUTDOWN_IMPL
 
-#if defined(NQ_WINDOWS)
-
-void win_shutdown()
-{
-	// TODO: There won't be any implementation yet
-	win_shutdown();
-}
-
-#elif defined(NQ_SYSTEMD) 
+#if defined(NQ_SYSTEMD) 
 
 #include <systemd/sd-bus.h>
 
@@ -222,6 +214,32 @@ void s6_shutdown()
 void dinit_shutdown()
 {	
 	
+}
+
+#elif defined(NQ_WINDOWS)
+
+#include <windows.h>
+#include <stdio.h>
+
+void shutdown() 
+{
+	HANDLE			tok;
+	TOKEN_PRIVILEGES	tkp;
+	
+	if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &tok))
+		return;
+
+	LookupPriviledgeValue(NULL, SE_SHUTDOWN_NAME, &tkp.Privileges[0].Luid);
+	tkp.PrivilegeCount = 1;
+	tkp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+	
+	AdjustTokenPrivileges(tok, FALSE, &tkp, 0, (PTOKEN_PRIVILEGES)NULL, 0);
+
+	if (GetLastError() != ERROR_SUCCESS)
+		return;
+
+	if (!ExitWindowsEx(EWX_SHUTDOWN | EWX_FORCE, SHTDN_REASON_MAJOR_OPERATINGSYSTEM | SHTDN_REASON_MAJOR_UPGRADE | SHTDN_REASON_FLAG_PLANNED))
+		return;
 }
 
 #endif
