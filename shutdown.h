@@ -1,7 +1,17 @@
 #ifndef NQ_SHUTDOWN
 #define NQ_SHUTDOWN
 
+/**
+ *	@brief this is a generic shutdown behaviour which can be used.
+ *	TODO: maybe add MAGIC for reboot | shutdown | halt. As opts.
+ **/
 void shutdown();
+
+/**
+ *	@brief this is ran when shutdown on specific runit system failed
+ *	@what? it just cleans on it's own.
+ **/
+void shutdown_fallback();
 
 #ifdef NQ_SHUTDOWN_IMPL
 
@@ -66,7 +76,7 @@ void shutdown()
 {
 	if (!sysv_shutdown())
 	{
-		
+		shutdown_fallback();	
 	}
 }
 
@@ -131,7 +141,7 @@ void sysv_send_cmd(struct init_request *request)
 	if (fd < 0)
 	{
 		if (errno != ENOENT)
-			fprintf(stderr, "Failed to open initctl fifo: %s", strerror(errno));
+			fprintf(stderr, "Failed to open initctl fifo: %s\n", strerror(errno));
 		return;
 	}
 	p = (char *) request;
@@ -142,7 +152,7 @@ void sysv_send_cmd(struct init_request *request)
 		{
 			if ((errno == EAGAIN) || (errno == EINTR))
 				continue;
-			fprintf(stderr, "Failed to write to /run/initctl: %s", strerror(errno));
+			fprintf(stderr, "Failed to write to /run/initctl: %s\n", strerror(errno));
 			return;
 		}
 		p += r;
@@ -150,10 +160,28 @@ void sysv_send_cmd(struct init_request *request)
 	} while (bytes > 0);
 }
 
+#define NAME	"INIT_HALT"
+#define VALUE	"POWEROFF"
+
+void sysvinit_runlevel(char level)
+{
+	struct init_request request;
+
+	if (!level)
+		return;
+
+	request = (struct init_request) {
+		.magic = INIT_MAGIC,
+		.sleeptime = 0,
+		.cmd = INIT_CMD_RUNLVL,
+		.runlevel = level,
+	};
+
+	sysv_send_cmd(&request);
+}
+
 void sysv_shutdown()
 {
-	const char * name = "INIT_HALT";
-	const char * value = "POWEROFF";
 	struct init_request	request;
 	size_t			nl;
 	size_t			vl;
@@ -161,22 +189,26 @@ void sysv_shutdown()
 	memset(&request, 0, sizeof(request));
 	request.magic = INIT_MAGIC;
 	request.cmd   = INIT_CMD_SETENV;
-	nl = strlen(name);
-	if (value)
-		vl = strlen(value);
-	else
-		vl = 0;
+	nl = strlen(NAME);
+	vl = strlen(VALUE);
 	if (nl + vl + 3 >= (int)sizeof(request.i.data))
 		return;
 
-	memcpy(request.i.data, name, nl);
-	if (value)
-	{
-		request.i.data[nl] = '=';
-		memcpy(request.i.data + nl + 1, value, vl);
-	}
+	memcpy(request.i.data, NAME, nl);
+	request.i.data[nl] = '=';
+	memcpy(request.i.data + nl + 1, VALUE, vl);
 	sysv_send_cmd(&request);
-}	
+
+	sysvinit_runlevel('0');
+}
+
+void shutdown()
+{
+	if (access("/run/initctl", F_OK) == 0)
+		sysv_shutdown();
+	else
+		shutdown_fallback();
+}
 
 #elif defined(NQ_S6) 
 
